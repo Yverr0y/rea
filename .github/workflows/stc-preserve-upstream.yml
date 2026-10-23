@@ -77,8 +77,7 @@ jobs:
           PY
           zip -qr ../REA-source-assets-metadata.zip source release-assets README.md relationships.yaml provenance.txt refs.txt upstream-head.txt git-objects.txt lfs-inventory.txt submodules.txt releases.jsonl release-tag-map.tsv
           cd ..
-          # Bundle was created in the job workspace, one level above capture.
-          mv ../REA-full-history.bundle ./REA-full-history.bundle
+          # Bundle and source ZIP were both created in the job workspace.
           sha256sum REA-full-history.bundle REA-source-assets-metadata.zip > SHA256SUMS
           sha256sum -c SHA256SUMS
           unzip -t REA-source-assets-metadata.zip | tail -n 1
