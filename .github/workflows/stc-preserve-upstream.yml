@@ -22,8 +22,8 @@ jobs:
           SOURCE=https://github.com/morluto/rea.git
           git clone --mirror "$SOURCE" upstream.git
           git -C upstream.git fsck --full --no-reflogs
-          git -C upstream.git bundle create ../REA-full-history.bundle --all
-          git -C upstream.git bundle verify ../REA-full-history.bundle
+          git -C upstream.git bundle create "$GITHUB_WORKSPACE/REA-full-history.bundle" --all
+          git -C upstream.git bundle verify "$GITHUB_WORKSPACE/REA-full-history.bundle"
           git clone "$SOURCE" source
           git -C source submodule update --init --recursive
           git -C source lfs fetch --all
@@ -78,6 +78,9 @@ jobs:
           zip -qr ../REA-source-assets-metadata.zip source release-assets README.md relationships.yaml provenance.txt refs.txt upstream-head.txt git-objects.txt lfs-inventory.txt submodules.txt releases.jsonl release-tag-map.tsv
           cd ..
           # Bundle and source ZIP were both created in the job workspace.
+          test -s REA-full-history.bundle
+          test -s REA-source-assets-metadata.zip
+          ls -lh REA-full-history.bundle REA-source-assets-metadata.zip
           sha256sum REA-full-history.bundle REA-source-assets-metadata.zip > SHA256SUMS
           sha256sum -c SHA256SUMS
           unzip -t REA-source-assets-metadata.zip | tail -n 1
