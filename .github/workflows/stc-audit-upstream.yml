@@ -51,51 +51,7 @@ jobs:
           git bundle list-heads REA-full-history.bundle | sort > bundle-refs.txt
           sort extracted/refs.txt > expected-refs.txt
           # Bundle list-heads includes HEAD as an additional symbolic entry.
-          grep -vE '[[:space:]]HEAD
-          python3 - <<'PY'
-          import json, pathlib, subprocess
-          root=pathlib.Path('extracted')
-          releases=[json.loads(s) for s in (root/'releases.jsonl').read_text().splitlines() if s.strip()]
-          expected=sum(len(r.get('assets',[])) for r in releases)
-          actual=sum(p.is_file() for p in (root/'release-assets').rglob('*'))
-          assert expected==actual, f'Release assets expected={expected}, stored={actual}'
-          subs=[s for s in (root/'submodules.txt').read_text().splitlines() if s.strip()]
-          for line in subs:
-              bits=line.strip().split()
-              if len(bits)>=2:
-                  p=root/'source'/bits[1]
-                  assert p.exists(), f'Missing submodule checkout: {p}'
-                  actual_head=subprocess.check_output(['git','-C',str(p),'rev-parse','HEAD'],text=True).strip()
-                  assert actual_head==bits[0].lstrip('+-U'), f'Submodule SHA mismatch: {p}'
-          lfs=[s for s in (root/'lfs-inventory.txt').read_text().splitlines() if s.strip()]
-          objects=list((root/'source'/'.git'/'lfs'/'objects').rglob('*')) if (root/'source'/'.git'/'lfs'/'objects').exists() else []
-          print(f'Releases: {len(releases)}; expected assets: {expected}; stored: {actual}')
-          print(f'Submodule checkouts validated: {len(subs)}')
-          print(f'LFS inventory entries: {len(lfs)}; object files in checkout: {sum(p.is_file() for p in objects)}')
-          with open('AUDIT.md','a') as f:
-              f.write(f'- Upstream releases: {len(releases)}; release assets expected/stored: {expected}/{actual} (PASS)\n')
-              f.write(f'- Submodule HEADs validated: {len(subs)} (PASS)\n')
-              f.write(f'- LFS tracked entries: {len(lfs)}; local LFS object files: {sum(p.is_file() for p in objects)} (inventory only)\n')
-              f.write('\n## Scope and limitations\n')
-              f.write('This checks release assets, accessible Git refs and the recorded checkout. ')
-              f.write('It does not certify every unreachable Git object or independently mirror submodule histories. ')
-              f.write('LFS object completeness needs separate object-ID verification if tracked LFS files exist.\n')
-          PY
-          cat AUDIT.md
-      - name: Upload audit evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: STC-REA-independent-audit
-          path: |
-            audit/AUDIT.md
-            audit/checksums.txt
-            audit/bundle-verify.txt
-            audit/git-fsck.txt
-            audit/refs-diff.txt
-          if-no-files-found: warn
-          retention-days: 90
- bundle-refs.txt > bundle-named-refs.txt
+          grep -vE '[[:space:]]HEAD$' bundle-refs.txt > bundle-named-refs.txt || true
           diff -u expected-refs.txt bundle-named-refs.txt > refs-diff.txt || {
             echo 'Ref mismatch between mirror inventory and bundle'
             cat refs-diff.txt
