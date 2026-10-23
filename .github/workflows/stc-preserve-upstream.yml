@@ -39,7 +39,12 @@ jobs:
             safe=$(printf '%s' "$tag" | sha256sum | cut -c1-16)
             mkdir -p "release-assets/$safe"
             printf '%s\t%s\n' "$safe" "$tag" >> release-tag-map.tsv
-            gh release download "$tag" --repo "$UPSTREAM" --dir "release-assets/$safe"
+            assets=$(gh api "repos/$UPSTREAM/releases/tags/$tag" --jq '.assets | length')
+            if [ "$assets" -gt 0 ]; then
+              gh release download "$tag" --repo "$UPSTREAM" --dir "release-assets/$safe"
+            else
+              echo "Release $tag has no assets; skipping download."
+            fi
           done < <(gh release list --repo "$UPSTREAM" --limit 10000 --json tagName --jq '.[].tagName')
           cat > README.md <<'EOF'
           # STC preservation: morluto/rea
