@@ -1,0 +1,82 @@
+name: STC preserve upstream REA
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  preserve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Capture upstream and publish verified archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git-lfs jq zip
+          mkdir -p capture
+          cd capture
+          UPSTREAM=morluto/rea
+          SOURCE=https://github.com/morluto/rea.git
+          git clone --mirror "$SOURCE" upstream.git
+          git -C upstream.git fsck --full --no-reflogs
+          git -C upstream.git bundle create ../REA-full-history.bundle --all
+          git -C upstream.git bundle verify ../REA-full-history.bundle
+          git clone "$SOURCE" source
+          git -C source submodule update --init --recursive
+          git -C source lfs fetch --all
+          git -C source lfs ls-files -l > lfs-inventory.txt
+          git -C source submodule status --recursive > submodules.txt
+          git -C upstream.git show-ref > refs.txt
+          git -C source rev-parse HEAD > upstream-head.txt
+          git -C upstream.git count-objects -v > git-objects.txt
+          gh api --paginate "repos/$UPSTREAM/releases?per_page=100" --jq '.[]' > releases.jsonl
+          mkdir -p release-assets
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            safe=$(printf '%s' "$tag" | sha256sum | cut -c1-16)
+            mkdir -p "release-assets/$safe"
+            printf '%s\t%s\n' "$safe" "$tag" >> release-tag-map.tsv
+            gh release download "$tag" --repo "$UPSTREAM" --dir "release-assets/$safe"
+          done < <(gh release list --repo "$UPSTREAM" --limit 10000 --json tagName --jq '.[].tagName')
+          cat > README.md <<'EOF'
+          # STC preservation: morluto/rea
+          Source: https://github.com/morluto/rea
+          Archive ID: stc:github:morluto:rea
+          Contents: complete fetched Git history bundle, checked-out source,
+          Git LFS objects, recursive submodule checkout, release metadata/assets,
+          inventories, SHA-256 manifest and relationship metadata.
+          Git bundle restore: git clone REA-full-history.bundle restored-rea
+          Verify after download: sha256sum -c SHA256SUMS
+          EOF
+          cat > relationships.yaml <<'EOF'
+          id: stc:github:morluto:rea
+          source: https://github.com/morluto/rea
+          type: source-code
+          tags: [github, repository, reverse-engineering, ai-agents, mcp, binaries, firmware, preservation]
+          relations:
+            - type: forked-by
+              target: https://github.com/Yverr0y/rea
+          EOF
+          printf 'source=%s\ncaptured_utc=%s\nworkflow_run=%s\n' "$SOURCE" "$(date -u +%FT%TZ)" "$GITHUB_RUN_ID" > provenance.txt
+          python3 - <<'PY'
+          import json, pathlib
+          items=[json.loads(s) for s in pathlib.Path('releases.jsonl').read_text().splitlines() if s.strip()]
+          expected=sum(len(x.get('assets',[])) for x in items)
+          actual=sum(p.is_file() for p in pathlib.Path('release-assets').rglob('*'))
+          print(f'Upstream releases: {len(items)}; expected assets: {expected}; downloaded: {actual}')
+          if actual != expected:
+              raise SystemExit('Release asset mismatch; refusing to publish incomplete archive')
+          PY
+          zip -qr ../REA-source-assets-metadata.zip source release-assets README.md relationships.yaml provenance.txt refs.txt upstream-head.txt git-objects.txt lfs-inventory.txt submodules.txt releases.jsonl release-tag-map.tsv
+          cd ..
+          sha256sum REA-full-history.bundle REA-source-assets-metadata.zip > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          unzip -t REA-source-assets-metadata.zip | tail -n 1
+          git clone -q REA-full-history.bundle restore-test
+          git -C restore-test fsck --full --no-reflogs
+          rm -rf restore-test
+          TAG="stc-rea-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          gh release create "$TAG" REA-full-history.bundle REA-source-assets-metadata.zip SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "STC upstream REA preservation $TAG" --notes "Upstream morluto/rea. SHA256 verified; Git bundle restored and checked. Inventory in source ZIP."
